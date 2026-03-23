@@ -8,8 +8,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from xgboost import XGBRegressor
-
+from sklearn.ensemble import RandomForestRegressor
 
 FEATURES = [
     "season",
@@ -51,19 +50,13 @@ def latest_cv_file(data_dir: Path) -> Path:
     return files[0]
 
 
-def build_model() -> XGBRegressor:
-    return XGBRegressor(
-        objective="reg:squarederror",
-        n_estimators=1200,
-        learning_rate=0.03,
-        max_depth=6,
-        min_child_weight=1,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        reg_alpha=0.0,
-        reg_lambda=1.0,
+def build_model() -> RandomForestRegressor:
+    return RandomForestRegressor(
+        n_estimators=500,
+        max_depth=None,
+        min_samples_leaf=1,
         random_state=42,
-        n_jobs=4,
+        n_jobs=-1,
     )
 
 
@@ -80,19 +73,20 @@ def main() -> None:
     input_path = latest_cv_file(data_dir)
     df = pd.read_csv(input_path)
 
-    required = set([TARGET, FOLD_COL, "datetime"] + [c for c in FEATURES if c != "hour"])
+    required = set([TARGET, FOLD_COL, "datetime", "source", *[c for c in FEATURES if c != "hour"]])
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
     work_df = df.copy()
-    if "datetime" not in work_df.columns:
-        raise ValueError("Missing required column: datetime")
     work_df["datetime"] = pd.to_datetime(work_df["datetime"], errors="coerce")
-    work_df["hour"] = work_df["datetime"].dt.hour
+    if "hour" not in work_df.columns:
+        work_df["hour"] = work_df["datetime"].dt.hour
+
     work_df[TARGET] = pd.to_numeric(work_df[TARGET], errors="coerce")
     for c in FEATURES:
         work_df[c] = pd.to_numeric(work_df[c], errors="coerce")
+
     work_df = work_df.dropna(subset=[TARGET]).reset_index(drop=True)
 
     oof_pred = np.zeros(len(work_df), dtype=float)
@@ -116,12 +110,7 @@ def main() -> None:
         y_valid = valid_df[TARGET].to_numpy(dtype=float)
 
         model = build_model()
-        model.fit(
-            x_train,
-            y_train,
-            eval_set=[(x_valid, np.log1p(np.clip(y_valid, 0, None)))],
-            verbose=False,
-        )
+        model.fit(x_train, y_train)
 
         pred = np.expm1(model.predict(x_valid))
         pred = np.clip(pred, 0, None)
@@ -137,7 +126,8 @@ def main() -> None:
             )
         )
 
-        model.save_model(str(models_dir / f"xgboost_basic_9feat_hour_fold{fold}.json"))
+        fold_model_path = models_dir / f"randomforest_basic_9feat_hour_fold{fold}.pkl"
+        joblib.dump(model, fold_model_path)
 
     mean_rmsle = float(np.mean([m.rmsle for m in fold_metrics]))
 
@@ -146,16 +136,13 @@ def main() -> None:
     full_model.fit(
         work_df[FEATURES].fillna(full_fill),
         np.log1p(work_df[TARGET].to_numpy(dtype=float)),
-        verbose=False,
     )
-    full_model_path = models_dir / "xgboost_basic_9feat_hour_full.json"
-    full_model.save_model(str(full_model_path))
-    full_model_pkl_path = models_dir / "xgboost_basic_9feat_hour_full.pkl"
-    joblib.dump(full_model, full_model_pkl_path)
+    full_model_path = models_dir / "randomforest_basic_9feat_hour_full.pkl"
+    joblib.dump(full_model, full_model_path)
 
     oof = work_df[["datetime", "source", TARGET, FOLD_COL]].copy()
     oof["pred_count"] = oof_pred
-    oof_path = outputs_dir / "oof_xgboost_basic_2fold.csv"
+    oof_path = outputs_dir / "oof_randomforest_basic_2fold.csv"
     oof.to_csv(oof_path, index=False)
 
     payload = {
@@ -167,18 +154,17 @@ def main() -> None:
         "fold_metrics": [asdict(m) for m in fold_metrics],
         "mean_rmsle": mean_rmsle,
         "model_paths": [
-            f"xgboost_basic_9feat_hour_fold{f}.json" for f in unique_folds
-        ]
-        + [full_model_path.name, full_model_pkl_path.name],
+            f"randomforest_basic_9feat_hour_fold{f}.pkl" for f in unique_folds
+        ] + [full_model_path.name],
         "oof_path": oof_path.name,
     }
-    metrics_path = outputs_dir / "xgboost_basic_2fold_metrics.json"
+    metrics_path = outputs_dir / "randomforest_basic_2fold_metrics.json"
     metrics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    report_path = reports_dir / "xgboost_basic_2fold_report.md"
+    report_path = reports_dir / "randomforest_basic_2fold_report.md"
     fold_scores_str = ", ".join(f"{m.rmsle:.6f}" for m in fold_metrics)
     report_lines = [
-        "# XGBoost Basic 2-Fold CV Report",
+        "# RandomForest Basic 2-Fold CV Report",
         "",
         f"- Time: {payload['timestamp']}",
         f"- Input: `{payload['input_data']}`",
