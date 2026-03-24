@@ -12,28 +12,40 @@
 - 指标：RMSLE（2-fold 随机 CV）
 - 模型：XGBoost + RandomForest
 
-2. 统一 full 模型持久化为 `pkl`：
-- XGBoost：新增 `models/xgboost_basic_9feat_hour_full.pkl`（保留现有 `.json` 兼容产物）。
-- RandomForest：`models/randomforest_basic_9feat_hour_full.pkl`。
+2. 固化并落盘 2-fold 切分（保证后续严格可比较）：
+- 对 `data/train_test_merged.csv` 中 `source in (train, miss_train)` 的样本按固定随机种子生成 `cv_fold`（0/1）。
+- 输出切分清单：`data/train_cv2fold_split.csv`（包含 `datetime,cv_fold`，可附带主键列）。
+- 后续所有 2-fold CV 训练必须复用该切分文件，不再临时重新随机划分。
 
-3. 新增 test 预测脚本（`src/predict_test_basic_models.py`）：
+3. 统一 full 模型持久化为 `pkl`：
+- XGBoost：新增 `models/xgboost_basic_9feat_full.pkl`（保留现有 `.json` 兼容产物）。
+- RandomForest：`models/randomforest_basic_9feat_full.pkl`。
+
+4. 新增 test 预测脚本（`src/predict_test_basic_models.py`）：
 - 输入：`train_test_merged.csv`（`source=test`）、`sampleSubmission_expected.csv`、两个 full 模型 `pkl`。
 - 预测流程：按同一特征顺序推理，`clip >= 0`，`round` 后转整数。
 - 对齐流程：以 `sampleSubmission_expected.csv` 为主表按 `datetime` 对齐，确保顺序与行数完全一致。
+ - 若因上游补齐导致 `source=test` 有极少缺失键，允许回退填充值（中位数）兜底，最终输出不得含空值。
 
-4. 预测文件交付（仅这两份）：
-- `outputs/submission_xgboost_basic9_full.csv`（`datetime,count`）
-- `outputs/submission_randomforest_basic9_full.csv`（`datetime,count`）
+5. 预测文件交付（仅这两份）：
+- `outputs/submission_xgboost_basic_9feat_full.csv`（`datetime,count`）
+- `outputs/submission_randomforest_basic_9feat_full.csv`（`datetime,count`）
 
-5. 报告补充：
-- 在 `reports/basic9_model_compare_train_miss_train.md` 记录两份 submission 文件路径和对齐校验结果（不再生成 `test_pred_compare`）。
+6. 报告补充：
+- 在 `reports/basic_9feat_model_compare.md` 记录两份 submission 文件路径和对齐校验结果。
+- 在 `reports/summary_results.md` 中记录实验的结论（注意在原有基础上增加内容，不要改变报告的格式，不要增加章节）
+
+7. 运行环境约束（新增）：
+- 为避免 OpenMP 共享内存限制导致训练中断，默认单线程执行：
+  - 模型参数：`n_jobs=1`
+  - 或运行时变量：`OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`
 
 #### Public Interfaces / Artifacts
 - 新增：`src/predict_test_basic_models.py`
-- 新增：`models/xgboost_basic_9feat_hour_full.pkl`
-- 新增：`models/randomforest_basic_9feat_hour_full.pkl`
+- 新增：`data/train_cv2fold_split.csv`
+- 新增：`models/xgboost_basic_9feat_full.pkl`
+- 新增：`models/randomforest_basic_9feat_full.pkl`
 - 新增：两个 submission 预测文件（`outputs/`）
-- 不新增 `outputs/test_pred_compare_basic9_models.csv`。
 
 #### Test Plan
 1. 模型文件可用性：
@@ -49,6 +61,13 @@
 4. 训练评估：
 - XGBoost 与 RandomForest 均输出 2-fold RMSLE 与 mean RMSLE 到各自 metrics/report。
 - 总览报告包含两模型评估结果与 submission 文件路径。
+5. 切分复用一致性：
+- 生成并保存 `data/train_cv2fold_split.csv`，`cv_fold` 仅包含 0/1。
+- 当次训练与后续复训均基于该文件切分；重复运行时每条样本 `cv_fold` 不变。
+
+6. 当前基线结果（用于回归对比）：
+- XGBoost mean RMSLE
+- RandomForest mean RMSLE
 
 #### Assumptions
 - `source=test` 在 `train_test_merged.csv` 可与模板时间戳完全对齐；若存在缺失，以模板为准并要求最终输出无缺失预测。

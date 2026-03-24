@@ -13,9 +13,9 @@
    - 重叠区不补双行（单行、train 优先）。
 3. 对补齐行按日期重建离散字段：
    - `hour = datetime.hour`
-   - `season` 按月映射：`1-3->1, 4-6->2, 7-9->3, 10-12->4`
-   - `holiday` 按美国/华盛顿特区规则判断（已由原始数据验证为西方规则）
-   - `workingday = 1{weekday 且非 holiday} else 0`
+   - `season` 根据数据提供规则做映射
+   - `holiday` 根据数据提供规则做映射
+   - `workingday` 根据数据提供的规则做映射
 4. 对连续数值特征 `weather,temp,atemp,humidity,windspeed`：
    - 按完整时间序列做线性插值（time-based）；
    - 头尾再 `ffill/bfill`；
@@ -24,9 +24,10 @@
    - `miss_test` 的 `casual,registered,count` 保持空值；
    - `miss_train` 的 `casual,registered,count` 基于时间线性插值填充，最终 `round` 为整数（并保证非负；`count=casual+registered`）。
 6. 输出格式约束：
-   - 整数列（如 `season,holiday,workingday,weather,humidity,hour,casual,registered,count`）写出为整数文本，不带 `.0`；
-   - 浮点列按原始列精度风格写出：`temp` 最多 2 位小数、`atemp` 最多 3 位小数、`windspeed` 最多 4 位小数（去除多余尾零）。
+   - 整数列写出为整数文本，不带 `.0`；
+   - 浮点列按原始列精度风格写出
 7. 按 `datetime` 升序输出回 `data/train_test_merged.csv`。
+8. 保证“只改新增行和确需插值列”：原始 `source in (train,test)` 的现有标签值不重算、不覆盖。
 
 #### Public Interfaces / Data Contract
 - 更新文件：`data/train_test_merged.csv`
@@ -50,8 +51,11 @@
 6. 格式约束：
    - 整数列无 `.0`；
    - `temp/atemp/windspeed` 小数位上限分别为 `2/3/4`。
+7. 体量校验（当前数据基线）：
+   - 最终行数 `17544`
+   - `source` 分布 `train=10886, test=6493, miss_train=163, miss_test=2`
 
 #### Assumptions
-- 节假日判定采用美国/华盛顿特区口径（与原始 `holiday` 日期一致）。
+- 节假日判定与原始 `holiday` 日期一致。
 - 仅补齐缺失时间点，不改写原有 `train/test` 行的已存在值。
 </proposed_plan>

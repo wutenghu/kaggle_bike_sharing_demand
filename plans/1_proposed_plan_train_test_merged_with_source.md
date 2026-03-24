@@ -12,6 +12,9 @@
 3. 按行拼接（列并集，保留全部字段）；`test` 的 `casual/registered/count` 保持空值。
 4. 将 `datetime` 解析为时间类型并做升序排序。
 5. 导出到 `data/train_test_merged.csv`（不写索引）。
+6. 执行后记录基础体量（用于后续计划对齐）：
+   - 预期行数：`10886 + 6493 = 17379`
+   - `source` 分布：`train=10886, test=6493`
 
 #### Public Interfaces / Data Contract
 - 输出文件：`data/train_test_merged.csv`
@@ -25,8 +28,10 @@
 3. 排序校验：`datetime` 单调非降序。
 4. 列校验：包含原有列 + `source`。
 5. 缺失值校验：`source='test'` 的 `casual/registered/count` 为空。
+6. 顺序校验：导出的首尾时间应分别等于 train/test 合并后的全局最小/最大 `datetime`。
 
 #### Assumptions
 - `source` 列名当前未与现有列冲突。
 - `datetime` 可正常解析，重复时间戳允许存在。
+- 此步骤仅生成基础合并表，不在此阶段补齐缺失小时。
 </proposed_plan>
